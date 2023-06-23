@@ -1,0 +1,270 @@
+{
+	"auto_complete":
+	{
+		"selected_items":
+		[
+			[
+				"for",
+				"forv\tVector For Loop"
+			],
+			[
+				"bit",
+				"bitmap_memory"
+			]
+		]
+	},
+	"buffers":
+	[
+		{
+			"contents": "\n#include <windows.h>\n#include <stdint.h>\n#include <winuser.h>\n\n#define internal static\n#define local_persist static\n#define global_variable static\n\n// unsigned integers\ntypedef uint8_t u8;     // 1-byte long unsigned integer\ntypedef uint16_t u16;   // 2-byte long unsigned integer\ntypedef uint32_t u32;   // 4-byte long unsigned integer\ntypedef uint64_t u64;   // 8-byte long unsigned integer\n                        // signed integers\ntypedef int8_t i8;      // 1-byte long signed integer\ntypedef int16_t i16;    // 2-byte long signed integer\ntypedef int32_t i32;    // 4-byte long signed integer\ntypedef int64_t i64;    // 8-byte long signed integer\n\n// TODO: this is a global for now\n// static initialises everyuthing to 0 by default\nglobal_variable bool running;\n\nglobal_variable BITMAPINFO bitmap_info;\nglobal_variable void *bitmap_memory;\nglobal_variable int bitmap_width;\nglobal_variable int bitmap_height;\nglobal_variable int bytes_per_pixel = 4;\n\n\n\n  internal void\nRenderWeirdGradient(int x_offset, int y_offset)\n{\n  int Width = bitmap_width;\n  int Height = bitmap_height;\n\n  int pitch = Width * bytes_per_pixel; // pitch = offset to next row\n  u8 *row = (u8 *)bitmap_memory;\n  for(int y = 0; y < bitmap_height; ++y)\n  {\n    //uint32 *pixel = (uint32 *)row; \n    u32 *pixel = (u32 *)row; \n    for(int x = 0; x < bitmap_width; ++x)\n    {\n      u8 blue = (x + x_offset);\n      u8 green = (y + y_offset); \n\n      *pixel++ = ((green << 8) | blue); \n    }\n\n    row += pitch;\n  }\n\n}\n\n  internal void\nWin32ResizeDIBSection(int Width, int Height) // DIB = Device Independant Bitmap\n{\n\n  // TODO: bulletproof this,\n  // Maybe dont free first, free after, then free first if that fails\n\n  if(bitmap_memory)\n  {\n    VirtualFree(bitmap_memory, 0, MEM_RELEASE);\n  }\n\n  bitmap_width = Width;\n  bitmap_height = Height;\n\n  bitmap_info.bmiHeader.biSize = sizeof(bitmap_info.bmiHeader);\n  bitmap_info.bmiHeader.biWidth = bitmap_width;\n  bitmap_info.bmiHeader.biHeight = -bitmap_height;\n  bitmap_info.bmiHeader.biPlanes = 1;\n  bitmap_info.bmiHeader.biBitCount = 32;\n  bitmap_info.bmiHeader.biCompression = BI_RGB;\n\n  //NOTE: thank you to chris hecker of spy party fame for clarying the deal with StretchDIBits and Bitblt\n  int bitmap_memory_size = (Width*Height)*bytes_per_pixel;\n\n  bitmap_memory = VirtualAlloc(0, bitmap_memory_size, MEM_COMMIT, PAGE_READWRITE);\n\n  //TODO: probably clear this to black\n}\n\n  internal void\nWin32UpdateWindow(HDC DeviceContext, RECT *window_rect, int X, int Y, int width, int height)\n{\n  int window_width = window_rect->right - window_rect->left;\n  int window_height = window_rect->bottom - window_rect->top;\n  StretchDIBits(DeviceContext,\n      /*\n         X, Y, width, height,\n         X, Y, width, height,\n         */\n      0, 0, bitmap_width, bitmap_height,\n      0, 0, window_width, window_height,\n      bitmap_memory,\n      &bitmap_info,\n      DIB_RGB_COLORS,\n      SRCCOPY);\n};\n\n\n  LRESULT CALLBACK \nWin32MainWindowCallback(HWND Window,\n    UINT Message,\n    WPARAM WParam,\n    LPARAM LParam)\n{\n  LRESULT result = 0;\n\n  switch(Message)\n  {\n    case WM_SIZE:\n      {\n        RECT client_rect;\n        GetClientRect(Window, &client_rect);\n        int height = client_rect.bottom - client_rect.top;\n        int width = client_rect.right - client_rect.left;\n        Win32ResizeDIBSection(width, height);\n      } break;\n\n    case WM_DESTROY:\n      {   \n        //TODO handle this as an error - recreate window?\n        running = false;\n        OutputDebugStringA(\"WM_DESTROY\\n\");\n      } break;\n\n    case WM_CLOSE:\n      {\n        //TODO handle this with a message to the user?\n        running = false;\n        OutputDebugStringA(\"WM_CLOSE\\n\");\n      } break;\n\n    case WM_ACTIVATEAPP:\n      {\n        OutputDebugStringA(\"WM_ACTIVATEAPP\\n\");\n      } break;\n\n    case WM_PAINT:\n      {\n        PAINTSTRUCT paint;\n        HDC device_context = BeginPaint(Window, &paint);\n        int X = paint.rcPaint.left;\n        int Y = paint.rcPaint.top;\n        int height = paint.rcPaint.bottom - paint.rcPaint.top;\n        int width = paint.rcPaint.right - paint.rcPaint.left;\n\n        RECT client_rect;\n        GetClientRect(Window, &client_rect);\n\n        Win32UpdateWindow(device_context, &client_rect, X, Y, width, height);\n        EndPaint(Window, &paint);\n      }break;\n\n    default:\n      {\n        //      OutputDebugStringA(\"default\\n\");\n        result = DefWindowProc(Window, Message, WParam, LParam);\n      } break;\n  }\n\n  return result;\n}\n\n  int CALLBACK \nWinMain(HINSTANCE Instance,\n    HINSTANCE PrevInstance,\n    LPSTR CommandLine,\n    int ShowCode)\n{\n\n  WNDCLASSA window_class{};\n  //TODO: Check if HREDRAW/VREDRWA/CSOWNDC are still needed\n  window_class.lpfnWndProc = Win32MainWindowCallback;\n  window_class.hInstance = Instance;\n  //  window_class.hIcon = ;\n  window_class.lpszClassName = \"HandmadeHeroWindowClass\";\n\n  if(RegisterClass(&window_class))\n  {\n    HWND window =\n      CreateWindowEx(0,\n          window_class.lpszClassName,\n          \"Handmade Hero\",\n          WS_OVERLAPPEDWINDOW | WS_VISIBLE,\n          CW_USEDEFAULT,\n          CW_USEDEFAULT,\n          CW_USEDEFAULT,\n          CW_USEDEFAULT,\n          0,\n          0,\n          Instance,\n          0);\n\n    if(window)\n    {\n      running = true;\n\n      int y_offset = 0;\n      int x_offset = 0;\n\n      while(running)\n      {\n        MSG message;\n        while(PeekMessage(&message, 0, 0, 0, PM_REMOVE))\n        {\n          if(message.message == WM_QUIT)\n          {\n            running = false;\n          }\n          TranslateMessage(&message);\n          DispatchMessageA(&message);\n        }\n\n        RenderWeirdGradient(x_offset, y_offset);\n\n        HDC DeviceContext = GetDC(window);\n\n        RECT client_rect;\n        GetClientRect(window, &client_rect);\n        int window_width = client_rect.right - client_rect.left;\n        int window_height = client_rect.bottom - client_rect.top;\n        Win32UpdateWindow(DeviceContext, &client_rect, 0, 0, window_width, window_height);\n        ReleaseDC(window, DeviceContext);\n\n        ++x_offset;\n      }\n    }\n    else\n    {\n      //TODO: logging\n    }\n  }\n  else \n  {\n    //TODO: logging\n  }\n\n\n  return(0);\n};\n",
+			"file": "/H/code/win32_handmade.cpp",
+			"file_size": 6402,
+			"file_write_time": 133319976470897715,
+			"redo_stack":
+			[
+				[
+					207,
+					1,
+					"insert",
+					{
+						"characters": "n"
+					},
+					"AgAAAJICAAAAAAAAlgIAAAAAAAAAAAAAkQIAAAAAAACRAgAAAAAAAAEAAABu",
+					"AQAAAAAAAAABAAAAkgIAAAAAAACSAgAAAAAAAAAAAAAAAPC/"
+				]
+			],
+			"settings":
+			{
+				"buffer_size": 6155,
+				"encoding": "UTF-8",
+				"line_ending": "Windows"
+			},
+			"undo_stack":
+			[
+				[
+					191,
+					2,
+					"toggle_comment",
+					{
+						"block": false
+					},
+					"AgAAAJkGAAAAAAAAnAYAAAAAAAAAAAAAmQYAAAAAAACZBgAAAAAAAAMAAAAvLyA",
+					"AQAAAAAAAAABAAAAqgYAAAAAAACqBgAAAAAAAAAAAAAAAPC/"
+				]
+			]
+		}
+	],
+	"build_system": "",
+	"build_system_choices":
+	[
+	],
+	"build_varint": "",
+	"command_palette":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"console":
+	{
+		"height": 172.0,
+		"history":
+		[
+			"cd code/",
+			"cd mis"
+		]
+	},
+	"distraction_free":
+	{
+		"menu_visible": true,
+		"show_minimap": false,
+		"show_open_files": false,
+		"show_tabs": false,
+		"side_bar_visible": false,
+		"status_bar_visible": false
+	},
+	"expanded_folders":
+	[
+		"/H/",
+		"/H//code"
+	],
+	"file_history":
+	[
+		"/H/code/build.bat",
+		"/C/Users/hristo.vuchev/AppData/Roaming/Sublime Text/Packages/User/Preferences.sublime-settings",
+		"/C/Users/hristo.vuchev/AppData/Roaming/Sublime Text/Packages/Default/Preferences.sublime-settings"
+	],
+	"find":
+	{
+		"height": 34.0
+	},
+	"find_in_files":
+	{
+		"height": 0.0,
+		"where_history":
+		[
+		]
+	},
+	"find_state":
+	{
+		"case_sensitive": false,
+		"find_history":
+		[
+		],
+		"highlight": true,
+		"in_selection": false,
+		"preserve_case": false,
+		"regex": false,
+		"replace_history":
+		[
+		],
+		"reverse": false,
+		"scrollbar_highlights": true,
+		"show_context": true,
+		"use_buffer2": true,
+		"use_gitignore": true,
+		"whole_word": false,
+		"wrap": true
+	},
+	"groups":
+	[
+		{
+			"sheets":
+			[
+				{
+					"buffer": 0,
+					"file": "/H/code/win32_handmade.cpp",
+					"selected": true,
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 6155,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								4577,
+								4577
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/C++/C++.sublime-syntax",
+							"tab_size": 2,
+							"translate_tabs_to_spaces": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 3911.33333333,
+						"zoom_level": 1.0
+					},
+					"stack_index": 0,
+					"stack_multiselect": false,
+					"type": "text"
+				}
+			]
+		},
+		{
+			"sheets":
+			[
+			]
+		}
+	],
+	"incremental_find":
+	{
+		"height": 34.0
+	},
+	"input":
+	{
+		"height": 0.0
+	},
+	"layout":
+	{
+		"cells":
+		[
+			[
+				0,
+				0,
+				1,
+				1
+			],
+			[
+				1,
+				0,
+				2,
+				1
+			]
+		],
+		"cols":
+		[
+			0.0,
+			0.5,
+			1.0
+		],
+		"rows":
+		[
+			0.0,
+			1.0
+		]
+	},
+	"menu_visible": true,
+	"output.find_results":
+	{
+		"height": 0.0
+	},
+	"pinned_build_system": "",
+	"project": "handmade.sublime-project",
+	"replace":
+	{
+		"height": 64.0
+	},
+	"save_all_on_build": true,
+	"select_file":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+			[
+				"win32",
+				"code\\win32_handmade.cpp"
+			]
+		],
+		"width": 0.0
+	},
+	"select_project":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"select_symbol":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"selected_group": 0,
+	"settings":
+	{
+	},
+	"show_minimap": true,
+	"show_open_files": true,
+	"show_tabs": true,
+	"side_bar_visible": true,
+	"side_bar_width": 242.0,
+	"status_bar_visible": true,
+	"template_settings":
+	{
+	}
+}
