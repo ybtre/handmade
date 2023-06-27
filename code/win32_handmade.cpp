@@ -28,7 +28,6 @@ struct win32_offscreen_buffer
       int width;
       int height;
       int pitch;
-      int bytes_per_pixel;
 };
 
 struct win32_window_dimensions
@@ -39,7 +38,7 @@ struct win32_window_dimensions
 
 // TODO: this is a global for now
 // static initialises everyuthing to 0 by default
-global_variable bool running;
+global_variable bool global_running;
 global_variable win32_offscreen_buffer global_backbuffer;
 
 
@@ -94,18 +93,18 @@ Win32ResizeDIBSection(win32_offscreen_buffer *buffer, int Width, int Height) // 
 
       buffer->width = Width;
       buffer->height = Height;
-      buffer->bytes_per_pixel = 4;
-      buffer->pitch = buffer->width * buffer->bytes_per_pixel; // pitch = offset to next row
+      int bytes_per_pixel = 4;
+      buffer->pitch = buffer->width * bytes_per_pixel; // pitch = offset to next row
 
       buffer->info.bmiHeader.biSize = sizeof(buffer->info.bmiHeader);
       buffer->info.bmiHeader.biWidth = buffer->width;
-      buffer->info.bmiHeader.biHeight = -buffer->height;
-      buffer->info.bmiHeader.biPlanes = 1;
+      buffer->info.bmiHeader.biHeight = -buffer->height; // NOTE(yakvi): Remember to VirtualFree the memory if we ever
+      buffer->info.bmiHeader.biPlanes = 1;              // call this function more than once on the same buffer!
       buffer->info.bmiHeader.biBitCount = 32;
       buffer->info.bmiHeader.biCompression = BI_RGB;
 
       //NOTE: thank you to chris hecker of spy party fame for clarying the deal with StretchDIBits and Bitblt
-      int bitmap_memory_size = (buffer->width*buffer->height)*buffer->bytes_per_pixel;
+      int bitmap_memory_size = (buffer->width*buffer->height)*bytes_per_pixel;
 
       buffer->memory = VirtualAlloc(0, bitmap_memory_size, MEM_COMMIT, PAGE_READWRITE);
 
@@ -151,14 +150,14 @@ Win32MainWindowCallback(HWND Window,
             case WM_DESTROY:
             {   
                   //TODO handle this as an error - recreate window?
-                  running = false;
+                  global_running = false;
                   OutputDebugStringA("WM_DESTROY\n");
             } break;
 
             case WM_CLOSE:
             {
                   //TODO handle this with a message to the user?
-                  running = false;
+                  global_running = false;
                   OutputDebugStringA("WM_CLOSE\n");
             } break;
 
@@ -227,21 +226,21 @@ WinMain(HINSTANCE Instance,
 
             if(window)
             {
-                  running = true;
+                  global_running = true;
 
                   int y_offset = 0;
                   int x_offset = 0;
 
                   HDC DeviceContext = GetDC(window);
 
-                  while(running)
+                  while(global_running)
                   {
                         MSG message;
                         while(PeekMessage(&message, 0, 0, 0, PM_REMOVE))
                         {
                               if(message.message == WM_QUIT)
                               {
-                                    running = false;
+                                    global_running = false;
                               }
                               TranslateMessage(&message);
                               DispatchMessageA(&message);
