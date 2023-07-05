@@ -1,5 +1,4 @@
 
-#include <profileapi.h>
 #include <windows.h>
 #include <stdint.h>
 #include <Xinput.h>
@@ -7,6 +6,7 @@
 // TODO: implement sine ourselves
 #include <math.h>
 #include <winnt.h>
+#include <winuser.h>
 
 #define internal static
 #define local_persist static
@@ -477,6 +477,10 @@ WinMain(HINSTANCE Instance,
       LPSTR CommandLine,
       int ShowCode)
 {
+    LARGE_INTEGER perf_counter_freq_result{};
+    QueryPerformanceFrequency(&perf_counter_freq_result);
+    i64 perf_count_freq = perf_counter_freq_result.QuadPart;
+
     WNDCLASSA window_class{};
 
     Win32LoadXInput();
@@ -535,6 +539,8 @@ WinMain(HINSTANCE Instance,
 
             LARGE_INTEGER last_counter{};
             QueryPerformanceCounter(&last_counter);
+            u64 last_cycle_count = __rdtsc();
+
             while(global_running)
             {
 
@@ -634,12 +640,23 @@ WinMain(HINSTANCE Instance,
                 ++x_offset;
                 //++y_offset;
 
+                u64 end_cycle_count = __rdtsc();
+
                 LARGE_INTEGER end_counter{};
                 QueryPerformanceCounter(&end_counter);
 
                 //TODO: dispaly counter value
-
+                u64 cycles_elapsed = end_cycle_count - last_cycle_count;
                 i64 counter_elapsed = end_counter.QuadPart - last_counter.QuadPart;
+                i32 ms_per_frame = (i32)((1000 * counter_elapsed) / perf_count_freq);        //NOTE: x1000 to go from seconds to miliseconds
+                i32 fps = perf_count_freq / counter_elapsed;
+                i32 mcpf = (i32)(cycles_elapsed / (1000 * 1000));                            // NOTE: / (1000 * 1000) - get mega cycles (mghz kinda)
+                                     
+                char buffer[256];
+                wsprintfA(buffer, "%dms/f, %df/s, %dmc/f \n", ms_per_frame, fps, mcpf);      
+                OutputDebugStringA(buffer);
+                
+                last_cycle_count = end_cycle_count;
                 last_counter = end_counter;
             }
         }
