@@ -1,9 +1,12 @@
 
+#include <profileapi.h>
 #include <windows.h>
 #include <stdint.h>
 #include <Xinput.h>
 #include <dsound.h>
+// TODO: implement sine ourselves
 #include <math.h>
+#include <winnt.h>
 
 #define internal static
 #define local_persist static
@@ -72,7 +75,7 @@ typedef DIRECT_SOUND_CREATE(direct_sound_create);
 
 // TODO: this is a global for now
 // static /initialises everyuthing to 0 by default
-global_variable bool global_running;
+global_variable b32 global_running;
 global_variable win32_offscreen_buffer global_backbuffer;
 global_variable LPDIRECTSOUNDBUFFER global_secondary_buffer;
 
@@ -82,6 +85,12 @@ internal void
 Win32LoadXInput(void)
 {
     HMODULE XInputLibrary = LoadLibraryA("xinput1_4.dll");
+    if(!XInputLibrary)
+    {
+       //TODO: diagnostics
+        XInputLibrary = LoadLibraryA("xinput9_1_0.dll");
+    }
+
     if(!XInputLibrary)
     {
        //TODO: diagnostics
@@ -302,8 +311,8 @@ Win32MainWindowCallback(HWND Window,
             //NOTE: bitshift LParam by 30 is the previuos key state
             //bitshift LParam by 31 is the transition state
             //https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-keyup
-            bool was_down = ((LParam & (1 << 30)) != 0);
-            bool is_down = ((LParam & (1 << 31)) == 0);
+            b32 was_down = ((LParam & (1 << 30)) != 0);
+            b32 is_down = ((LParam & (1 << 31)) == 0);
             if(was_down != is_down)
             {
                 if(VKCode == 'W')
@@ -333,7 +342,7 @@ Win32MainWindowCallback(HWND Window,
                 else if(VKCode == VK_DOWN)
                 {
                 }
-                else if(VKCode == VK_DOWN)
+                else if(VKCode == VK_RIGHT)
                 {
                 }
                 else if(VKCode == VK_ESCAPE)
@@ -406,6 +415,8 @@ struct win32_sound_output
     int wave_period;
     int bytes_per_sample;
     int secondary_buffer_size;
+    f32 t_sine;
+    int latency_sample_count;
 };
 
 internal void
@@ -428,14 +439,14 @@ Win32_FillSoundBuffer(win32_sound_output *sound_output, DWORD byte_to_lock, DWOR
 
         for(DWORD sample_index = 0; sample_index < region1_sample_count; ++sample_index)
         {
-            f32 t = 2.0f * Pi32 * (f32)sound_output->running_sample_index / (f32)sound_output->wave_period;
-            f32 sine_value = sinf(t);
-            i16 sample_value = (i16)(sine_value * sound_output->tone_volume); 
             //Square wave: i16 sample_value = ((running_sample_index++ / half_wave_period) % 2) ? tone_volume : -tone_volume;
+            f32 sine_value = sinf(sound_output->t_sine);
+            i16 sample_value = (i16)(sine_value * sound_output->tone_volume);
 
             *sample_out++ = sample_value;
             *sample_out++ = sample_value;
 
+            sound_output->t_sine += 2.0f * Pi32 * 1.0f / (f32)sound_output->wave_period;
             ++sound_output->running_sample_index;
         }
 
@@ -444,13 +455,13 @@ Win32_FillSoundBuffer(win32_sound_output *sound_output, DWORD byte_to_lock, DWOR
 
         for(DWORD sample_index = 0; sample_index < region2_sample_count; ++sample_index)
         {
-            f32 t = 2.0f * Pi32 * (f32)sound_output->running_sample_index / (f32)sound_output->wave_period;
-            f32 sine_value = sinf(t);
-            i16 sample_value = (i16)(sine_value * sound_output->tone_volume); 
+            f32 sine_value = sinf(sound_output->t_sine);
+            i16 sample_value = (i16)(sine_value * sound_output->tone_volume);
 
             *sample_out++ = sample_value;
             *sample_out++ = sample_value;
 
+            sound_output->t_sine += 2.0f * Pi32 * 1.0f / (f32)sound_output->wave_period;
             ++sound_output->running_sample_index;
         }
 
@@ -511,17 +522,22 @@ WinMain(HINSTANCE Instance,
             sound_output.tone_volume = 3000;
             sound_output.running_sample_index = 0;
             sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_Hz;
-            //int half_wave_period = wave_period / 2;
             sound_output.bytes_per_sample = sizeof(int16_t) * 2;
             sound_output.secondary_buffer_size = sound_output.samples_per_second * sound_output.bytes_per_sample;
+            sound_output.latency_sample_count = sound_output.samples_per_second / 15;                                   //15fps cutoff point
 
             Win32InitDSound(window, sound_output.secondary_buffer_size, sound_output.samples_per_second);
-            Win32_FillSoundBuffer(&sound_output, 0, sound_output.secondary_buffer_size);
+            Win32_FillSoundBuffer(&sound_output, 0, sound_output.latency_sample_count * sound_output.bytes_per_sample);
             global_secondary_buffer->Play(0, 0, DSBPLAY_LOOPING);
 
+
             global_running = true;
+
+            LARGE_INTEGER last_counter{};
+            QueryPerformanceCounter(&last_counter);
             while(global_running)
             {
+
                 MSG message;
                 while(PeekMessage(&message, 0, 0, 0, PM_REMOVE))
                 {
@@ -542,32 +558,42 @@ WinMain(HINSTANCE Instance,
                         //TODO: see if controller_sate.dwPacketNumber increments too rapidly
                         XINPUT_GAMEPAD *pad = &controller_state.Gamepad;
 
-                        bool up = (pad->wButtons & XINPUT_GAMEPAD_DPAD_UP);
-                        bool down = (pad->wButtons & XINPUT_GAMEPAD_DPAD_DOWN);
-                        bool left = (pad->wButtons & XINPUT_GAMEPAD_DPAD_LEFT);
-                        bool right = (pad->wButtons & XINPUT_GAMEPAD_DPAD_RIGHT);
+                        b32 up = (pad->wButtons & XINPUT_GAMEPAD_DPAD_UP);
+                        b32 down = (pad->wButtons & XINPUT_GAMEPAD_DPAD_DOWN);
+                        b32 left = (pad->wButtons & XINPUT_GAMEPAD_DPAD_LEFT);
+                        b32 right = (pad->wButtons & XINPUT_GAMEPAD_DPAD_RIGHT);
 
-                        bool start = (pad->wButtons & XINPUT_GAMEPAD_START);
-                        bool back = (pad->wButtons & XINPUT_GAMEPAD_BACK);
+                        b32 start = (pad->wButtons & XINPUT_GAMEPAD_START);
+                        b32 back = (pad->wButtons & XINPUT_GAMEPAD_BACK);
 
-                        bool left_shoulder = (pad->wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER);
-                        bool right_shoulder = (pad->wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER);
+                        b32 left_shoulder = (pad->wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER);
+                        b32 right_shoulder = (pad->wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER);
 
-                        bool A_button = (pad->wButtons & XINPUT_GAMEPAD_A);
-                        bool B_button = (pad->wButtons & XINPUT_GAMEPAD_B);
-                        bool X_button = (pad->wButtons & XINPUT_GAMEPAD_X);
-                        bool Y_button = (pad->wButtons & XINPUT_GAMEPAD_Y);
+                        b32 A_button = (pad->wButtons & XINPUT_GAMEPAD_A);
+                        b32 B_button = (pad->wButtons & XINPUT_GAMEPAD_B);
+                        b32 X_button = (pad->wButtons & XINPUT_GAMEPAD_X);
+                        b32 Y_button = (pad->wButtons & XINPUT_GAMEPAD_Y);
 
                         i16 stick_X = pad->sThumbLX;
                         i16 stick_Y = pad->sThumbLY;
+
+
+                        x_offset += stick_X / 4096;
+                        y_offset += stick_Y / 4096;
+
+                        sound_output.tone_Hz = 512 + (int)(256.0f * ((f32) stick_Y / 30000.0f));
+                        sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_Hz;
+
+
                         if(A_button)
                         {
                             ++y_offset;
                         }
+
                     }
                     else
                     {
-                     //NOTE: this controlelr is not available
+                         //NOTE: this controlelr is not available
                     }
                 }
 
@@ -581,25 +607,21 @@ WinMain(HINSTANCE Instance,
                 //NOTE: DirectSound output test
                 DWORD play_cursor;
                 DWORD write_cursor;
-
                 if(SUCCEEDED(global_secondary_buffer->GetCurrentPosition(&play_cursor, &write_cursor)))
                 {
-                    DWORD byte_to_lock = (sound_output.running_sample_index * sound_output.bytes_per_sample) % sound_output.secondary_buffer_size;
-                    DWORD bytes_to_write = 0;
+                    DWORD byte_to_lock = ((sound_output.running_sample_index * sound_output.bytes_per_sample) % sound_output.secondary_buffer_size);
+                    DWORD target_cursor = ((play_cursor + (sound_output.latency_sample_count * sound_output.bytes_per_sample)) % sound_output.secondary_buffer_size);
+                    DWORD bytes_to_write{};
 
                     //TODO: we need a more accurate check than byt_to_lock == play_cursor
-                    if(byte_to_lock == play_cursor)
-                    {
-                        bytes_to_write = 0;
-                    }
-                    else if(byte_to_lock > play_cursor)
+                    if(byte_to_lock > target_cursor)
                     {
                         bytes_to_write = (sound_output.secondary_buffer_size - byte_to_lock);
-                        bytes_to_write += play_cursor;
+                        bytes_to_write += target_cursor;
                     }
                     else
                     {
-                        bytes_to_write = play_cursor - byte_to_lock;
+                        bytes_to_write = target_cursor - byte_to_lock;
                     }
 
                     Win32_FillSoundBuffer(&sound_output, byte_to_lock, bytes_to_write);
@@ -611,6 +633,14 @@ WinMain(HINSTANCE Instance,
 
                 ++x_offset;
                 //++y_offset;
+
+                LARGE_INTEGER end_counter{};
+                QueryPerformanceCounter(&end_counter);
+
+                //TODO: dispaly counter value
+
+                i64 counter_elapsed = end_counter.QuadPart - last_counter.QuadPart;
+                last_counter = end_counter;
             }
         }
         else
