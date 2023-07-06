@@ -1,12 +1,26 @@
 
-#include <windows.h>
+//
+//TODO: THIS IS NOT A FINAL PLATFORM LAYER!!
+//
+// - saved game location
+// - getting a handle to our own .exe
+// - asset lodaing path
+// - threading (launch a thread)
+// - raw input(support for multiple keyboards)
+// - sleep/time_begin_period
+// - ClipCursor() (for multimonitor support)
+// - fullscreen support
+// - WM_SETCURSOR (control cursot visibility)
+// - QueryCancleAutoplay
+// - WM_ACTIVATEAPP (for when we are not the active app)
+// - Blit speeed improvements (BitBlt)
+// - Hadware acceleration (Opengl or Direct3D or both)
+// - GetKeyboardLayout (for french keyboards, international support)
+//
+// Just a partial list of stuff
+//
+//
 #include <stdint.h>
-#include <Xinput.h>
-#include <dsound.h>
-// TODO: implement sine ourselves
-#include <math.h>
-#include <winnt.h>
-#include <winuser.h>
 
 #define internal static
 #define local_persist static
@@ -29,6 +43,16 @@ typedef i32     b32;
 
 typedef float   f32;
 typedef double  f64;
+
+#include "handmade.h"
+#include "handmade.cpp"
+
+#include <windows.h>
+#include <Xinput.h>
+#include <dsound.h>
+// TODO: implement sine ourselves
+#include <math.h>
+
 
 struct win32_offscreen_buffer
 {
@@ -208,26 +232,6 @@ Win32GetWindowDimension(HWND window)
     return result;
 }
 
-internal void
-RenderWeirdGradient(win32_offscreen_buffer *buffer, int x_offset, int y_offset)
-{
-      //TODO: lets see waht the optimizer does when passed by value
-    u8 *row = (u8 *)buffer->memory;
-    for(int y = 0; y < buffer->height; ++y)
-    {
-        //uint32 *pixel = (uint32 *)row;
-        u32 *pixel = (u32 *)row;
-
-        for(int x = 0; x < buffer->width; ++x)
-        {
-            u8 blue = (x + x_offset);
-            u8 green = (y + y_offset);
-            *pixel++ = ((green << 8) | blue);
-        }
-
-        row += buffer->pitch;
-    }
-}
 
 
 
@@ -608,7 +612,13 @@ WinMain(HINSTANCE Instance,
                 vibration.wRightMotorSpeed = 60000;
                 XInputSetState(0, &vibration);
 
-                RenderWeirdGradient(&global_backbuffer, x_offset, y_offset);
+                game_offscreen_buffer buffer{};
+                buffer.memory = global_backbuffer.memory;
+                buffer.width = global_backbuffer.width;
+                buffer.height = global_backbuffer.height;
+                buffer.pitch = global_backbuffer.pitch; 
+
+                GameUpdateAndRender(&buffer, x_offset, y_offset);
 
                 //NOTE: DirectSound output test
                 DWORD play_cursor;
@@ -619,7 +629,6 @@ WinMain(HINSTANCE Instance,
                     DWORD target_cursor = ((play_cursor + (sound_output.latency_sample_count * sound_output.bytes_per_sample)) % sound_output.secondary_buffer_size);
                     DWORD bytes_to_write{};
 
-                    //TODO: we need a more accurate check than byt_to_lock == play_cursor
                     if(byte_to_lock > target_cursor)
                     {
                         bytes_to_write = (sound_output.secondary_buffer_size - byte_to_lock);
@@ -651,10 +660,12 @@ WinMain(HINSTANCE Instance,
                 i32 ms_per_frame = (i32)((1000 * counter_elapsed) / perf_count_freq);        //NOTE: x1000 to go from seconds to miliseconds
                 i32 fps = perf_count_freq / counter_elapsed;
                 i32 mcpf = (i32)(cycles_elapsed / (1000 * 1000));                            // NOTE: / (1000 * 1000) - get mega cycles (mghz kinda)
-                                     
+               
+#if 0
                 char buffer[256];
                 wsprintfA(buffer, "%dms/f, %df/s, %dmc/f \n", ms_per_frame, fps, mcpf);      
                 OutputDebugStringA(buffer);
+#endif
                 
                 last_cycle_count = end_cycle_count;
                 last_counter = end_counter;
