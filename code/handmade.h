@@ -1,5 +1,9 @@
 #if !defined(HANDMADE_H)
 
+#define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
+
+// TODO: swap, min, max ... macros?
+
 // TODO(): Services that the platform layer provides to the game
 
 // NOTE(casey): Services that the game provides to the platform layer.
@@ -54,9 +58,46 @@ struct game_sound_output_buffer {
   i16 *samples;
 };
 
-internal void GameUpdateAndRender(game_offscreen_buffer *Buffer, int BlueOffset,
-                                  int GreenOffset,
-                                  game_sound_output_buffer *sound_buffer);
+struct game_button_state {
+  int half_transition_count;
+  b32 ended_down;
+};
+
+struct game_controller_input {
+  b32 is_analog;
+
+  f32 start_X;
+  f32 start_Y;
+
+  f32 min_X;
+  f32 min_Y;
+
+  f32 max_X;
+  f32 max_Y;
+
+  f32 end_X;
+  f32 end_Y;
+
+  union {
+    game_button_state buttons[6];
+    struct {
+      game_button_state up;
+      game_button_state down;
+      game_button_state left;
+      game_button_state right;
+      game_button_state left_shoulder;
+      game_button_state right_shoulder;
+    };
+  };
+};
+
+struct game_input {
+  game_controller_input controllers[4];
+};
+
+internal void GameUpdateAndRender(game_offscreen_buffer *Buffer,
+                                  game_sound_output_buffer *sound_buffer,
+                                  game_input *input);
 
 #define HANDMADE_H
 #endif

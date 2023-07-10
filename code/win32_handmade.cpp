@@ -20,31 +20,10 @@
 // Just a partial list of stuff
 //
 //
-#include "handmade.cpp"
-#include "handmade.h"
-
-#include <dsound.h>
-#include <memoryapi.h>
-#include <stdio.h>
-#include <windows.h>
-#include <winnt.h>
+// #include "handmade.cpp"
+// #include "handmade.h"
+#include "win32_handmade.h"
 #include <xinput.h>
-
-struct win32_offscreen_buffer {
-  // NOTE(casey): Pixels are always 32-bits wide,
-  // Memory Order  0x BB GG RR xx
-  // Little Endian 0x xx RR GG BB
-  BITMAPINFO info;
-  void *memory;
-  int width;
-  int height;
-  int pitch;
-};
-
-struct win32_window_dimensions {
-  int width;
-  int height;
-};
 
 // NOTE: XInputGetState
 #define X_INPUT_GET_STATE(name)                                                \
@@ -320,18 +299,6 @@ internal LRESULT CALLBACK Win32MainWindowCallback(HWND Window, UINT Message,
   return result;
 }
 
-struct win32_sound_output {
-  int samples_per_second;
-  int tone_Hz;
-  i16 tone_volume;
-  u32 running_sample_index;
-  int wave_period;
-  int bytes_per_sample;
-  int secondary_buffer_size;
-  f32 t_sine;
-  int latency_sample_count;
-};
-
 internal void Win32_ClearBuffer(win32_sound_output *sound_output) {
 
   VOID *region1{};
@@ -402,6 +369,16 @@ internal void Win32_FillSoundBuffer(win32_sound_output *sound_output,
   }
 };
 
+internal void Win32_ProcessXInputDigitalButton(DWORD xinput_button_state,
+                                               game_button_state *old_sate,
+                                               DWORD button_bit,
+                                               game_button_state *new_state) {
+
+  new_state->ended_down = ((xinput_button_state & button_bit) == button_bit);
+  new_state->half_transition_count =
+      (old_sate->ended_down |= new_state->ended_down) ? 1 : 0;
+};
+
 internal int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
                               LPSTR CommandLine, int ShowCode) {
   LARGE_INTEGER perf_counter_freq_result{};
@@ -437,11 +414,7 @@ internal int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
       win32_sound_output sound_output{};
 
       sound_output.samples_per_second = 48000;
-      sound_output.tone_Hz = 256;
-      sound_output.tone_volume = 3000;
       sound_output.running_sample_index = 0;
-      sound_output.wave_period =
-          sound_output.samples_per_second / sound_output.tone_Hz;
       sound_output.bytes_per_sample = sizeof(int16_t) * 2;
       sound_output.secondary_buffer_size =
           sound_output.samples_per_second * sound_output.bytes_per_sample;
@@ -453,18 +426,22 @@ internal int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
       Win32_ClearBuffer(&sound_output);
       global_secondary_buffer->Play(0, 0, DSBPLAY_LOOPING);
 
-      global_running = true;
-
       i16 *samples = (i16 *)VirtualAlloc(
           0, 48000 * 2 * sizeof(i16), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+
+      game_input input[2]{};
+      game_input *old_input = &input[0];
+      game_input *new_input = &input[1];
 
       LARGE_INTEGER last_counter{};
       QueryPerformanceCounter(&last_counter);
       u64 last_cycle_count = __rdtsc();
 
+      global_running = true;
       while (global_running) {
 
         MSG message;
+
         while (PeekMessage(&message, 0, 0, 0, PM_REMOVE)) {
           if (message.message == WM_QUIT) {
             global_running = false;
@@ -473,8 +450,21 @@ internal int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
           TranslateMessage(&message);
           DispatchMessageA(&message);
         }
-        for (DWORD controller_index = 0; controller_index < XUSER_MAX_COUNT;
-             ++controller_index) {
+
+        int max_controller_count = XUSER_MAX_COUNT;
+        if (max_controller_count > ArrayCount(new_input->controllers)) {
+
+          max_controller_count = ArrayCount(new_input->controllers);
+        }
+
+        for (DWORD controller_index = 0;
+             controller_index < max_controller_count; ++controller_index) {
+
+          game_controller_input *old_controller =
+              &old_input->controllers[controller_index];
+          game_controller_input *new_controller =
+              &new_input->controllers[controller_index];
+
           XINPUT_STATE controller_state{};
           if (XInputGetState(controller_index, &controller_state) ==
               ERROR_SUCCESS) {
@@ -483,37 +473,62 @@ internal int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
             // rapidly
             XINPUT_GAMEPAD *pad = &controller_state.Gamepad;
 
+            // TODO: dpad
             b32 up = (pad->wButtons & XINPUT_GAMEPAD_DPAD_UP);
             b32 down = (pad->wButtons & XINPUT_GAMEPAD_DPAD_DOWN);
             b32 left = (pad->wButtons & XINPUT_GAMEPAD_DPAD_LEFT);
             b32 right = (pad->wButtons & XINPUT_GAMEPAD_DPAD_RIGHT);
 
-            b32 start = (pad->wButtons & XINPUT_GAMEPAD_START);
-            b32 back = (pad->wButtons & XINPUT_GAMEPAD_BACK);
+            new_controller->is_analog = true;
+            new_controller->start_X = old_controller->end_X;
+            new_controller->start_Y = old_controller->end_Y;
 
-            b32 left_shoulder = (pad->wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER);
-            b32 right_shoulder =
-                (pad->wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER);
-
-            b32 A_button = (pad->wButtons & XINPUT_GAMEPAD_A);
-            b32 B_button = (pad->wButtons & XINPUT_GAMEPAD_B);
-            b32 X_button = (pad->wButtons & XINPUT_GAMEPAD_X);
-            b32 Y_button = (pad->wButtons & XINPUT_GAMEPAD_Y);
-
-            i16 stick_X = pad->sThumbLX;
-            i16 stick_Y = pad->sThumbLY;
-
-            x_offset += stick_X / 4096;
-            y_offset += stick_Y / 4096;
-
-            sound_output.tone_Hz =
-                512 + (int)(256.0f * ((f32)stick_Y / 30000.0f));
-            sound_output.wave_period =
-                sound_output.samples_per_second / sound_output.tone_Hz;
-
-            if (A_button) {
-              ++y_offset;
+            // TODO: Min/Max macros!!
+            // TODO: collapse to single function
+            f32 X;
+            if (pad->sThumbLX < 0) {
+              X = (f32)pad->sThumbLX / 32768.0f;
+            } else {
+              X = (f32)pad->sThumbLX / 32767.0f;
             }
+
+            f32 Y;
+            if (pad->sThumbLY < 0) {
+              Y = (f32)pad->sThumbLY / 32768.0f;
+            } else {
+              Y = (f32)pad->sThumbLY / 32767.0f;
+            }
+            new_controller->min_X = new_controller->max_X =
+                new_controller->end_X = X;
+            new_controller->min_Y = new_controller->max_Y =
+                new_controller->end_Y = Y;
+
+            // b32 start = (pad->wButtons & XINPUT_GAMEPAD_START);
+            // b32 back = (pad->wButtons & XINPUT_GAMEPAD_BACK);
+
+            // TODO: we will do deadzone handling later using
+            // XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE
+            // XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE
+
+            Win32_ProcessXInputDigitalButton(
+                pad->wButtons, &old_controller->down, XINPUT_GAMEPAD_A,
+                &new_controller->down);
+            Win32_ProcessXInputDigitalButton(
+                pad->wButtons, &old_controller->right, XINPUT_GAMEPAD_B,
+                &new_controller->right);
+            Win32_ProcessXInputDigitalButton(
+                pad->wButtons, &old_controller->left, XINPUT_GAMEPAD_X,
+                &new_controller->left);
+            Win32_ProcessXInputDigitalButton(pad->wButtons, &old_controller->up,
+                                             XINPUT_GAMEPAD_Y,
+                                             &new_controller->up);
+
+            Win32_ProcessXInputDigitalButton(
+                pad->wButtons, &old_controller->left_shoulder,
+                XINPUT_GAMEPAD_LEFT_SHOULDER, &new_controller->left_shoulder);
+            Win32_ProcessXInputDigitalButton(
+                pad->wButtons, &old_controller->right_shoulder,
+                XINPUT_GAMEPAD_RIGHT_SHOULDER, &new_controller->right_shoulder);
 
           } else {
             // NOTE: this controlelr is not available
@@ -525,11 +540,11 @@ internal int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
         vibration.wRightMotorSpeed = 60000;
         XInputSetState(0, &vibration);
 
-        DWORD play_cursor;
-        DWORD write_cursor;
-        DWORD byte_to_lock;
-        DWORD bytes_to_write;
-        DWORD target_cursor;
+        DWORD play_cursor{};
+        DWORD write_cursor{};
+        DWORD byte_to_lock{};
+        DWORD bytes_to_write{};
+        DWORD target_cursor{};
         b32 sound_is_valid = false;
         // TODO: tighten up sound logic so that we know where we should be
         // writing to and can anticipate the time spent in the game update
@@ -568,8 +583,7 @@ internal int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
         buffer.height = global_backbuffer.height;
         buffer.pitch = global_backbuffer.pitch;
 
-        GameUpdateAndRender(&buffer, x_offset, y_offset, &sound_buffer,
-                            sound_output.tone_Hz);
+        GameUpdateAndRender(&buffer, &sound_buffer, new_input);
 
         if (sound_is_valid) {
 
@@ -608,6 +622,11 @@ internal int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
 
         last_cycle_count = end_cycle_count;
         last_counter = end_counter;
+
+        game_input *temp = new_input;
+        new_input = old_input;
+        old_input = temp;
+        // TODO: should i clear these here?
       }
     } else {
       // TODO: logging

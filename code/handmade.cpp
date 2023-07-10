@@ -43,10 +43,26 @@ internal void RenderWeirdGradient(game_offscreen_buffer *buffer,
   }
 }
 
-internal void GameUpdateAndRender(game_offscreen_buffer *Buffer, int BlueOffset,
-                                  int GreenOffset,
+internal void GameUpdateAndRender(game_offscreen_buffer *Buffer,
                                   game_sound_output_buffer *sound_buffer,
-                                  int tone_hz) {
+                                  game_input *input) {
+
+  local_persist int BlueOffset{};
+  local_persist int GreenOffset{};
+  local_persist int tone_hz = 256 * 2;
+
+  game_controller_input *input0 = &input->controllers[0];
+  if (input0->is_analog) {
+    // NOTE: use analog movement tuning;
+    tone_hz = 256 + (int)(128.0f * (input0->end_X));
+    BlueOffset += (int)4.0f * (input0->end_Y);
+  } else {
+    // NOTE: use digital movement tuning
+  }
+
+  if (input0->down.ended_down) {
+    GreenOffset += 1;
+  }
 
   // TODO: allow sample offsets here for more robust platform options
   GameOutputSound(sound_buffer, tone_hz);
