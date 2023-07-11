@@ -29,8 +29,6 @@
 
 // TODO: swap, min, max ... macros?
 
-// TODO(): Services that the platform layer provides to the game
-
 // NOTE(casey): Services that the game provides to the platform layer.
 //(this may expand in the future - sound on separate thread, etc.)
 
@@ -52,6 +50,7 @@
 
 #define Pi32 3.14159265359f
 
+////////////////////////////////////////////////////////////////////////////////
 // unsigned integers
 typedef uint8_t u8;   // 1-byte long unsigned integer
 typedef uint16_t u16; // 2-byte long unsigned integer
@@ -67,6 +66,28 @@ typedef i32 b32;
 
 typedef float f32;
 typedef double f64;
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+// UTIL FUNCTIONS
+////////////////////////////////////////////////////////////////////////////////
+inline u32 SafeTruncateUInt64(u64 value) {
+  // TODO: defines for maximum values UInt32Max
+  Assert(value <= 0xFFFFFFFF);
+  u32 result = (u32)value;
+
+  return result;
+}
+
+// TODO(): Services that the platform layer provides to the game
+#if HANDMADE_INTERNAL
+internal void DEBUG_PlatformFreeFileMemory(void *memory);
+internal void *DEBUG_PlatformReadEntireFile(char *filename);
+
+internal b32 DEBUG_PlatformWriteEntireFile(char *filename, u32 mem_size,
+                                           void *memory);
+#endif
+
+////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
 struct game_offscreen_buffer {

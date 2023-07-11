@@ -52,6 +52,13 @@ internal void GameUpdateAndRender(game_memory *memory,
 
   game_state *game_state = (struct game_state *)memory->permanent_storage;
   if (!memory->is_initialized) {
+
+    char *filename = __FILE__;
+    void *bitmap_memory = DEBUG_PlatformReadEntireFile(filename);
+    if (bitmap_memory) {
+      DEBUG_PlatformFreeFileMemory(bitmap_memory);
+    };
+
     game_state->tone_hz = 256;
 
     // TODO: this may be more appropriate to do in the platform layer

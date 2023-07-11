@@ -23,7 +23,6 @@
 // #include "handmade.cpp"
 // #include "handmade.h"
 #include "win32_handmade.h"
-#include <xinput.h>
 
 // NOTE: XInputGetState
 #define X_INPUT_GET_STATE(name)                                                \
@@ -51,6 +50,55 @@ typedef DIRECT_SOUND_CREATE(direct_sound_create);
 global_variable b32 global_running;
 global_variable win32_offscreen_buffer global_backbuffer;
 global_variable LPDIRECTSOUNDBUFFER global_secondary_buffer;
+
+internal void DEBUG_PlatformFreeFileMemory(void *memory) {
+
+  if (memory) {
+    VirtualFree(memory, 0, MEM_RELEASE);
+  }
+};
+
+internal void *DEBUG_PlatformReadEntireFile(char *filename) {
+
+  void *result;
+
+  HANDLE file_handle = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, 0,
+                                   OPEN_EXISTING, 0, 0);
+
+  if (file_handle != INVALID_HANDLE_VALUE) {
+    LARGE_INTEGER file_size;
+    if (GetFileSizeEx(file_handle, &file_size)) {
+      u32 file_size32 = SafeTruncateUInt64(file_size.QuadPart);
+      result = VirtualAlloc(0, file_size32, MEM_RESERVE | MEM_COMMIT,
+                            PAGE_READWRITE);
+      if (result) {
+        DWORD bytes_read;
+        if (ReadFile(file_handle, result, file_size32, &bytes_read, 0) &&
+            (file_size32 == bytes_read)) {
+
+          // NOTE: file read successfully
+        } else {
+          // TODO: logging
+          DEBUG_PlatformFreeFileMemory(result);
+          result = 0;
+        }
+      } else {
+        // TODO: logging
+      }
+    }
+
+    CloseHandle(file_handle);
+  } else {
+    // TODO: logging
+  }
+
+  return result;
+};
+
+internal b32 DEBUG_PlatformWriteEntireFile(char *filename, u32 mem_size,
+                                           void *memory) {
+  return 0;
+};
 
 internal void Win32LoadXInput(void) {
   HMODULE XInputLibrary = LoadLibraryA("xinput1_4.dll");
