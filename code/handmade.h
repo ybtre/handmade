@@ -1,5 +1,30 @@
 #if !defined(HANDMADE_H)
 
+// NOTE:
+// HANDMADE_INTERNAL:
+// 0 - Build for public release
+// 1 - Build for developer only
+//
+// HANDMADE_SLOW:
+// 0 - No slow code allowed!
+// 1 - Slow code welcome
+//
+
+#if HANDMADE_SLOW
+#define Assert(Expression)                                                     \
+  if (!(Expression)) {                                                         \
+    *(int *)0 = 0;                                                             \
+  }
+#else
+#define Assert(Expression)
+#endif
+
+// TODO: should these always be 64bit
+#define Kilobytes(Value) ((Value)*1024LL)
+#define Megabytes(Value) (Kilobytes(Value) * 1024LL)
+#define Gigabytes(Value) (Megabytes(Value) * 1024LL)
+#define Terabytes(Value) (Gigabytes(Value) * 1024LL)
+
 #define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
 
 // TODO: swap, min, max ... macros?
@@ -92,12 +117,33 @@ struct game_controller_input {
 };
 
 struct game_input {
+  // TODO: insert clock value here
   game_controller_input controllers[4];
 };
 
-internal void GameUpdateAndRender(game_offscreen_buffer *Buffer,
+struct game_memory {
+  b32 is_initialized;
+
+  u64 permanent_storage_size;
+  void *permanent_storage; // NOTE: REQUIRED to be cleared to zero at startup
+
+  u64 transient_storage_size;
+  void *transient_storage; // NOTE: REQUIRED to be cleared to zero at startup
+};
+
+internal void GameUpdateAndRender(game_memory *memory,
+                                  game_offscreen_buffer *Buffer,
                                   game_sound_output_buffer *sound_buffer,
                                   game_input *input);
+//
+//
+//
+
+struct game_state {
+  int tone_hz;
+  int green_offset;
+  int blue_offset;
+};
 
 #define HANDMADE_H
 #endif
