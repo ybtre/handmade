@@ -80,8 +80,16 @@ inline u32 SafeTruncateUInt64(u64 value) {
 
 // TODO(): Services that the platform layer provides to the game
 #if HANDMADE_INTERNAL
+// IMPORTANT:
+// These are NOT for doing anything in the shiping game - they are blocking and
+// the write doesnt protect against lost data!
+//
+struct debug_read_file_result {
+  u32 contents_size;
+  void *contents;
+};
 internal void DEBUG_PlatformFreeFileMemory(void *memory);
-internal void *DEBUG_PlatformReadEntireFile(char *filename);
+internal debug_read_file_result DEBUG_PlatformReadEntireFile(char *filename);
 
 internal b32 DEBUG_PlatformWriteEntireFile(char *filename, u32 mem_size,
                                            void *memory);

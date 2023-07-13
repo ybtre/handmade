@@ -58,9 +58,9 @@ internal void DEBUG_PlatformFreeFileMemory(void *memory) {
   }
 };
 
-internal void *DEBUG_PlatformReadEntireFile(char *filename) {
+internal debug_read_file_result DEBUG_PlatformReadEntireFile(char *filename) {
 
-  void *result;
+  debug_read_file_result result{};
 
   HANDLE file_handle = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, 0,
                                    OPEN_EXISTING, 0, 0);
@@ -69,18 +69,20 @@ internal void *DEBUG_PlatformReadEntireFile(char *filename) {
     LARGE_INTEGER file_size;
     if (GetFileSizeEx(file_handle, &file_size)) {
       u32 file_size32 = SafeTruncateUInt64(file_size.QuadPart);
-      result = VirtualAlloc(0, file_size32, MEM_RESERVE | MEM_COMMIT,
-                            PAGE_READWRITE);
-      if (result) {
+      result.contents = VirtualAlloc(0, file_size32, MEM_RESERVE | MEM_COMMIT,
+                                     PAGE_READWRITE);
+      if (result.contents) {
         DWORD bytes_read;
-        if (ReadFile(file_handle, result, file_size32, &bytes_read, 0) &&
+        if (ReadFile(file_handle, result.contents, file_size32, &bytes_read,
+                     0) &&
             (file_size32 == bytes_read)) {
 
           // NOTE: file read successfully
+          result.contents_size = file_size32;
         } else {
           // TODO: logging
-          DEBUG_PlatformFreeFileMemory(result);
-          result = 0;
+          DEBUG_PlatformFreeFileMemory(result.contents);
+          result.contents = 0;
         }
       } else {
         // TODO: logging
@@ -97,7 +99,27 @@ internal void *DEBUG_PlatformReadEntireFile(char *filename) {
 
 internal b32 DEBUG_PlatformWriteEntireFile(char *filename, u32 mem_size,
                                            void *memory) {
-  return 0;
+
+  b32 result = false;
+
+  HANDLE file_handle =
+      CreateFileA(filename, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, 0, 0);
+
+  if (file_handle != INVALID_HANDLE_VALUE) {
+    DWORD bytes_written;
+    if (WriteFile(file_handle, memory, mem_size, &bytes_written, 0)) {
+      // NOTE: file read successfully
+      result = (bytes_written == mem_size);
+    } else {
+      // TODO: logging
+    }
+
+    CloseHandle(file_handle);
+  } else {
+    // TODO: logging
+  }
+
+  return result;
 };
 
 internal void Win32LoadXInput(void) {
@@ -681,8 +703,8 @@ internal int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
                                                      // seconds to miliseconds
           i32 fps = perf_count_freq / counter_elapsed;
           i32 mcpf = (i32)(cycles_elapsed /
-                           (1000 * 1000)); // NOTE: / (1000 * 1000) - get mega
-                                           // cycles (mghz kinda)
+                           (1000 * 1000)); // NOTE: / (1000 * 1000) - get
+                                           // mega cycles (mghz kinda)
 
 #if 0
                 char buffer[256];
