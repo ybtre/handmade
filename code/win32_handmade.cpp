@@ -23,6 +23,7 @@
 // #include "handmade.cpp"
 // #include "handmade.h"
 #include "win32_handmade.h"
+#include <libloaderapi.h>
 
 // NOTE: XInputGetState
 #define X_INPUT_GET_STATE(name)                                                \
@@ -300,40 +301,8 @@ internal LRESULT CALLBACK Win32MainWindowCallback(HWND Window, UINT Message,
   case WM_SYSKEYUP:
   case WM_KEYDOWN:
   case WM_KEYUP: {
-    u32 VKCode = WParam;
-    // NOTE: bitshift LParam by 30 is the previuos key state
-    // bitshift LParam by 31 is the transition state
-    // https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-keyup
-    b32 was_down = ((LParam & (1 << 30)) != 0);
-    b32 is_down = ((LParam & (1 << 31)) == 0);
-    if (was_down != is_down) {
-      if (VKCode == 'W') {
-      } else if (VKCode == 'A') {
-      } else if (VKCode == 'S') {
-      } else if (VKCode == 'D') {
-      } else if (VKCode == 'Q') {
-      } else if (VKCode == 'E') {
-      } else if (VKCode == VK_UP) {
-      } else if (VKCode == VK_LEFT) {
-      } else if (VKCode == VK_DOWN) {
-      } else if (VKCode == VK_RIGHT) {
-      } else if (VKCode == VK_ESCAPE) {
-        OutputDebugStringA("ESCAPE: ");
-        if (is_down) {
-          OutputDebugStringA("is Down ");
-        }
-        if (was_down) {
-          OutputDebugStringA("was Down ");
-        }
-        OutputDebugStringA("\n");
-      } else if (VKCode == VK_SPACE) {
-      }
-    }
 
-    b32 alt_key_was_down = (LParam & (1 << 29));
-    if (VKCode == VK_F4 && alt_key_was_down) {
-      global_running = false;
-    };
+    Assert(!"Keyboard input came in through a non-dispatch message!");
 
   } break;
 
@@ -440,17 +409,24 @@ internal void Win32_FillSoundBuffer(win32_sound_output *sound_output,
 };
 
 internal void Win32_ProcessXInputDigitalButton(DWORD xinput_button_state,
-                                               game_button_state *old_sate,
+                                               game_button_state *old_state,
                                                DWORD button_bit,
                                                game_button_state *new_state) {
 
   new_state->ended_down = ((xinput_button_state & button_bit) == button_bit);
   new_state->half_transition_count =
-      (old_sate->ended_down |= new_state->ended_down) ? 1 : 0;
+      (old_state->ended_down |= new_state->ended_down) ? 1 : 0;
 };
 
-internal int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
-                              LPSTR CommandLine, int ShowCode) {
+internal void Win32_ProcessKeyboardMsg(game_button_state *new_state,
+                                       b32 is_down) {
+
+  new_state->ended_down = is_down;
+  ++new_state->half_transition_count;
+};
+
+extern int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
+                            LPSTR CommandLine, int ShowCode) {
   LARGE_INTEGER perf_counter_freq_result{};
   QueryPerformanceFrequency(&perf_counter_freq_result);
   i64 perf_count_freq = perf_counter_freq_result.QuadPart;
@@ -508,12 +484,13 @@ internal int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
       // NOTE: VirtualAlloc always initialises the memory to 0
       game_memory game_memory{};
       game_memory.permanent_storage_size = Megabytes(64);
-      game_memory.transient_storage_size = Gigabytes(4);
+      game_memory.transient_storage_size = Gigabytes(1);
 
       u64 total_size = game_memory.permanent_storage_size +
                        game_memory.transient_storage_size;
-      game_memory.permanent_storage = VirtualAlloc(
-          base_address, total_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+      game_memory.permanent_storage =
+          VirtualAlloc(base_address, (size_t)total_size,
+                       MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
       game_memory.transient_storage = ((u8 *)game_memory.permanent_storage +
                                        game_memory.permanent_storage_size);
 
@@ -533,16 +510,86 @@ internal int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
 
           MSG message;
 
+          game_controller_input *keyboard_controller =
+              &new_input->controllers[0];
+          // TODO: zeroing macro
+          // TODO: we cant zero everything because the up/dpwn state will be
+          // wrong
+          game_controller_input zero_controller{};
+          *keyboard_controller = zero_controller;
+
           while (PeekMessage(&message, 0, 0, 0, PM_REMOVE)) {
             if (message.message == WM_QUIT) {
               global_running = false;
             }
 
-            TranslateMessage(&message);
-            DispatchMessageA(&message);
+            switch (message.message) {
+            case WM_SYSKEYDOWN:
+            case WM_SYSKEYUP:
+            case WM_KEYDOWN:
+            case WM_KEYUP: {
+              u32 VKCode = (u32)message.wParam;
+              // NOTE: bitshift LParam by 30 is the previuos key state
+              // bitshift LParam by 31 is the transition state
+              // https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-keyup
+              b32 was_down = ((message.lParam & (1 << 30)) != 0);
+              b32 is_down = ((message.lParam & (1 << 31)) == 0);
+              if (was_down != is_down) {
+                if (VKCode == 'W') {
+                } else if (VKCode == 'A') {
+                } else if (VKCode == 'S') {
+                } else if (VKCode == 'D') {
+                } else if (VKCode == 'Q') {
+                  Win32_ProcessKeyboardMsg(&keyboard_controller->left_shoulder,
+                                           is_down);
+
+                } else if (VKCode == 'E') {
+                  Win32_ProcessKeyboardMsg(&keyboard_controller->right_shoulder,
+                                           is_down);
+
+                } else if (VKCode == VK_UP) {
+                  Win32_ProcessKeyboardMsg(&keyboard_controller->up, is_down);
+
+                } else if (VKCode == VK_LEFT) {
+                  Win32_ProcessKeyboardMsg(&keyboard_controller->left, is_down);
+
+                } else if (VKCode == VK_DOWN) {
+                  Win32_ProcessKeyboardMsg(&keyboard_controller->down, is_down);
+
+                } else if (VKCode == VK_RIGHT) {
+                  Win32_ProcessKeyboardMsg(&keyboard_controller->right,
+                                           is_down);
+
+                } else if (VKCode == VK_ESCAPE) {
+                  OutputDebugStringA("ESCAPE: ");
+                  if (is_down) {
+                    OutputDebugStringA("is Down ");
+                  }
+                  if (was_down) {
+                    OutputDebugStringA("was Down ");
+                  }
+                  OutputDebugStringA("\n");
+
+                  global_running = false;
+
+                } else if (VKCode == VK_SPACE) {
+                }
+              }
+
+              b32 alt_key_was_down = (message.lParam & (1 << 29));
+              if (VKCode == VK_F4 && alt_key_was_down) {
+                global_running = false;
+              };
+            } break;
+
+            default: {
+              TranslateMessage(&message);
+              DispatchMessageA(&message);
+            } break;
+            }
           }
 
-          int max_controller_count = XUSER_MAX_COUNT;
+          DWORD max_controller_count = XUSER_MAX_COUNT;
           if (max_controller_count > ArrayCount(new_input->controllers)) {
 
             max_controller_count = ArrayCount(new_input->controllers);
@@ -701,7 +748,7 @@ internal int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
           i32 ms_per_frame = (i32)((1000 * counter_elapsed) /
                                    perf_count_freq); // NOTE: x1000 to go from
                                                      // seconds to miliseconds
-          i32 fps = perf_count_freq / counter_elapsed;
+          i32 fps = (i32)perf_count_freq / (i32)counter_elapsed;
           i32 mcpf = (i32)(cycles_elapsed /
                            (1000 * 1000)); // NOTE: / (1000 * 1000) - get
                                            // mega cycles (mghz kinda)

@@ -34,8 +34,8 @@ internal void RenderWeirdGradient(game_offscreen_buffer *buffer,
     u32 *pixel = (u32 *)row;
 
     for (int x = 0; x < buffer->width; ++x) {
-      u8 blue = (x + blue_offset);
-      u8 green = (y + green_offset);
+      u8 blue = (u8)(x + blue_offset);
+      u8 green = (u8)(y + green_offset);
       *pixel++ = ((green << 8) | blue);
     }
 
@@ -71,7 +71,7 @@ internal void GameUpdateAndRender(game_memory *memory,
   if (input0->is_analog) {
     // NOTE: use analog movement tuning;
     game_state->tone_hz = 256 + (int)(128.0f * (input0->end_X));
-    game_state->blue_offset += (int)4.0f * (input0->end_Y);
+    game_state->blue_offset += (int)(4.0f * (input0->end_Y));
   } else {
     // NOTE: use digital movement tuning
   }
