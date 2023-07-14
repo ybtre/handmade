@@ -79,21 +79,21 @@ inline u32 SafeTruncateUInt64(u64 value) {
 }
 
 // TODO(): Services that the platform layer provides to the game
-#if HANDMADE_INTERNAL
-// IMPORTANT:
-// These are NOT for doing anything in the shiping game - they are blocking and
-// the write doesnt protect against lost data!
-//
-struct debug_read_file_result {
+struct DEBUG_read_file_result {
   u32 contents_size;
   void *contents;
 };
+// #if HANDMADE_INTERNAL
+//  IMPORTANT:
+//  These are NOT for doing anything in the shiping game - they are blocking and
+//  the write doesnt protect against lost data!
+//
 internal void DEBUG_PlatformFreeFileMemory(void *memory);
-internal debug_read_file_result DEBUG_PlatformReadEntireFile(char *filename);
+internal DEBUG_read_file_result DEBUG_PlatformReadEntireFile(char *filename);
 
 internal b32 DEBUG_PlatformWriteEntireFile(char *filename, u32 mem_size,
                                            void *memory);
-#endif
+// #endif
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -118,37 +118,46 @@ struct game_button_state {
 };
 
 struct game_controller_input {
+  b32 is_connected;
   b32 is_analog;
 
-  f32 start_X;
-  f32 start_Y;
-
-  f32 min_X;
-  f32 min_Y;
-
-  f32 max_X;
-  f32 max_Y;
-
-  f32 end_X;
-  f32 end_Y;
+  f32 stick_avg_X;
+  f32 stick_avg_Y;
 
   union {
-    game_button_state buttons[6];
+    game_button_state buttons[12];
     struct {
-      game_button_state up;
-      game_button_state down;
-      game_button_state left;
-      game_button_state right;
+      game_button_state move_up;
+      game_button_state move_down;
+      game_button_state move_left;
+      game_button_state move_right;
+
+      game_button_state action_up;
+      game_button_state action_down;
+      game_button_state action_left;
+      game_button_state action_right;
+
       game_button_state left_shoulder;
       game_button_state right_shoulder;
+
+      game_button_state start;
+      game_button_state back;
     };
   };
 };
 
 struct game_input {
   // TODO: insert clock value here
-  game_controller_input controllers[4];
+  game_controller_input controllers[5];
 };
+inline game_controller_input *GetController(game_input *input,
+                                            int controller_index) {
+  Assert(controller_index < ArrayCount(input->controllers));
+
+  game_controller_input *result = &input->controllers[controller_index];
+
+  return result;
+}
 
 struct game_memory {
   b32 is_initialized;

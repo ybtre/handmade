@@ -54,7 +54,7 @@ internal void GameUpdateAndRender(game_memory *memory,
   if (!memory->is_initialized) {
 
     char *filename = __FILE__;
-    debug_read_file_result file = DEBUG_PlatformReadEntireFile(filename);
+    DEBUG_read_file_result file = DEBUG_PlatformReadEntireFile(filename);
     if (file.contents) {
       DEBUG_PlatformWriteEntireFile("test.out", file.contents_size,
                                     file.contents);
@@ -67,17 +67,29 @@ internal void GameUpdateAndRender(game_memory *memory,
     memory->is_initialized = true;
   }
 
-  game_controller_input *input0 = &input->controllers[0];
-  if (input0->is_analog) {
-    // NOTE: use analog movement tuning;
-    game_state->tone_hz = 256 + (int)(128.0f * (input0->end_X));
-    game_state->blue_offset += (int)(4.0f * (input0->end_Y));
-  } else {
-    // NOTE: use digital movement tuning
-  }
+  for (int controller_index = 0;
+       controller_index < ArrayCount(input->controllers); ++controller_index) {
 
-  if (input0->down.ended_down) {
-    game_state->green_offset += 1;
+    game_controller_input *controller = GetController(input, controller_index);
+    if (controller->is_analog) {
+      // NOTE: use analog movement tuning;
+      game_state->tone_hz = 256 + (int)(128.0f * (controller->stick_avg_X));
+      game_state->blue_offset += (int)(4.0f * (controller->stick_avg_Y));
+    } else {
+      // NOTE: use digital movement tuning
+      if (controller->move_left.ended_down) {
+        game_state->blue_offset -= 1;
+      }
+      if (controller->move_right.ended_down) {
+        game_state->blue_offset += 1;
+      }
+      if (controller->move_up.ended_down) {
+        game_state->green_offset -= 1;
+      }
+      if (controller->move_down.ended_down) {
+        game_state->green_offset += 1;
+      }
+    }
   }
 
   // TODO: allow sample offsets here for more robust platform options
