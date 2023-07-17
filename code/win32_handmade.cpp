@@ -426,10 +426,12 @@ internal f32 Win32_ProcessXInputStickValue(SHORT value,
 
   f32 result = 0;
   if (value < -deadzone_threshold) {
-    result = (f32)value / 32768.0f;
+    result =
+        (f32)((value + deadzone_threshold) / (32768.0f - deadzone_threshold));
 
   } else if (value > deadzone_threshold) {
-    result = (f32)value / 32767.0f;
+    result =
+        (f32)((value - deadzone_threshold) / (32767.0f + deadzone_threshold));
   }
 
   return result;
@@ -611,9 +613,8 @@ extern int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
               GetController(old_input, 0);
           game_controller_input *new_keyboard_controller =
               GetController(new_input, 0);
-          game_controller_input zero_controller{};
 
-          *new_keyboard_controller = zero_controller;
+          *new_keyboard_controller = {};
           new_keyboard_controller->is_connected = true;
 
           for (int button_index = 0;
@@ -654,23 +655,34 @@ extern int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
               // rapidly
               XINPUT_GAMEPAD *pad = &controller_state.Gamepad;
 
-              new_controller->is_analog = true;
+              // TODO: this is a square deadzone, check xinput to verify that
+              // the deadzone is "rouind" and show how to do round deadzone
+              // processing
               new_controller->stick_avg_X = Win32_ProcessXInputStickValue(
                   pad->sThumbLX, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
               new_controller->stick_avg_Y = Win32_ProcessXInputStickValue(
                   pad->sThumbLY, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
 
+              if ((new_controller->stick_avg_X != 0.0f) ||
+                  (new_controller->stick_avg_Y != 0.0f)) {
+                new_controller->is_analog = true;
+              }
+
               if (pad->wButtons & XINPUT_GAMEPAD_DPAD_UP) {
                 new_controller->stick_avg_Y = 1.0f;
+                new_controller->is_analog = false;
               }
               if (pad->wButtons & XINPUT_GAMEPAD_DPAD_DOWN) {
                 new_controller->stick_avg_Y = -1.0f;
+                new_controller->is_analog = false;
               }
               if (pad->wButtons & XINPUT_GAMEPAD_DPAD_LEFT) {
                 new_controller->stick_avg_X = -1.0f;
+                new_controller->is_analog = false;
               }
               if (pad->wButtons & XINPUT_GAMEPAD_DPAD_RIGHT) {
                 new_controller->stick_avg_X = 1.0f;
+                new_controller->is_analog = false;
               }
 
               // TODO: Min/Max macros!!
@@ -680,13 +692,13 @@ extern int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
                   &old_controller->move_left, 1, &new_controller->move_left);
               Win32_ProcessXInputDigitalButton(
                   (new_controller->stick_avg_X > threshold) ? 1 : 0,
-                  &old_controller->move_left, 1, &new_controller->move_left);
+                  &old_controller->move_right, 1, &new_controller->move_right);
               Win32_ProcessXInputDigitalButton(
                   (new_controller->stick_avg_Y < -threshold) ? 1 : 0,
-                  &old_controller->move_left, 1, &new_controller->move_left);
+                  &old_controller->move_down, 1, &new_controller->move_down);
               Win32_ProcessXInputDigitalButton(
                   (new_controller->stick_avg_Y > threshold) ? 1 : 0,
-                  &old_controller->move_left, 1, &new_controller->move_left);
+                  &old_controller->move_up, 1, &new_controller->move_up);
 
               Win32_ProcessXInputDigitalButton(
                   pad->wButtons, &old_controller->action_down, XINPUT_GAMEPAD_A,

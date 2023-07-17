@@ -48,6 +48,9 @@ internal void GameUpdateAndRender(game_memory *memory,
                                   game_sound_output_buffer *sound_buffer,
                                   game_input *input) {
 
+  Assert(
+      (&input->controllers[0].terminator - &input->controllers[0].buttons[0]) ==
+      (ArrayCount(input->controllers[0].buttons)));
   Assert(sizeof(game_state) <= memory->permanent_storage_size);
 
   game_state *game_state = (struct game_state *)memory->permanent_storage;

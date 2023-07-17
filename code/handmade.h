@@ -142,6 +142,9 @@ struct game_controller_input {
 
       game_button_state start;
       game_button_state back;
+
+      // NOTE: All buttons must be added abovec this line
+      game_button_state terminator;
     };
   };
 };
@@ -151,7 +154,7 @@ struct game_input {
   game_controller_input controllers[5];
 };
 inline game_controller_input *GetController(game_input *input,
-                                            int controller_index) {
+                                            unsigned int controller_index) {
   Assert(controller_index < ArrayCount(input->controllers));
 
   game_controller_input *result = &input->controllers[controller_index];
